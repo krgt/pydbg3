@@ -1,5 +1,3 @@
-#!c:\python\python.exe
-
 #
 # PyDBG
 # Copyright (C) 2006 Pedram Amini <pedram.amini@gmail.com>
@@ -282,7 +280,7 @@ class pydbg:
         self._log("bp_del(0x{:08x})".format(address))
 
         # ensure a breakpoint exists at the target address.
-        if self.breakpoints.has_key(address):
+        if address in self.breakpoints:
             # restore the original byte.
             self.write_process_memory(address, self.breakpoints[address].original_byte)
             self.set_attr("dirty", True)
@@ -386,10 +384,10 @@ class pydbg:
         @return:    Self
         '''
 
-        if self.hardware_breakpoints.has_key(0): self.bp_del_hw(slot=0)
-        if self.hardware_breakpoints.has_key(1): self.bp_del_hw(slot=1)
-        if self.hardware_breakpoints.has_key(2): self.bp_del_hw(slot=2)
-        if self.hardware_breakpoints.has_key(3): self.bp_del_hw(slot=3)
+        if 0 in self.hardware_breakpoints: self.bp_del_hw(slot=0)
+        if 1 in self.hardware_breakpoints: self.bp_del_hw(slot=1)
+        if 2 in self.hardware_breakpoints: self.bp_del_hw(slot=2)
+        if 3 in self.hardware_breakpoints: self.bp_del_hw(slot=3)
 
         return self.ret_self()
 
@@ -412,7 +410,7 @@ class pydbg:
         self._log("bp_del_mem(0x{:08x})".format(address))
 
         # ensure a memory breakpoint exists at the target address.
-        if self.memory_breakpoints.has_key(address):
+        if address in self.memory_breakpoints:
             size = self.memory_breakpoints[address].size
             mbi  = self.memory_breakpoints[address].mbi
 
@@ -482,7 +480,7 @@ class pydbg:
         @return: True if breakpoint in question is ours, False otherwise
         '''
 
-        if self.breakpoints.has_key(address_to_check):
+        if address_to_check in self.breakpoints:
             return True
 
         return False
@@ -553,13 +551,13 @@ class pydbg:
         self._log("bp_set(0x{:08x})".format(address))
 
         # ensure a breakpoint doesn't already exist at the target address.
-        if not self.breakpoints.has_key(address):
+        if not address in self.breakpoints:
             try:
                 # save the original byte at the requested breakpoint address.
                 original_byte = self.read_process_memory(address, 1)
 
                 # write an int3 into the target process space.
-                self.write_process_memory(address, "\xCC")
+                self.write_process_memory(address, b"\xCC")
                 self.set_attr("dirty", True)
 
                 # add the breakpoint to the internal list.
@@ -609,7 +607,7 @@ class pydbg:
         @return:    Self
         '''
 
-        self._log("bp_set_hw({:08x}, {:d}, {:s})".format((address, length, condition)))
+        self._log("bp_set_hw({:08x}, {:d}, {:s})".format(address, length, condition))
 
         # instantiate a new hardware breakpoint object for the new bp to create.
         hw_bp = hardware_breakpoint(address, length, condition, description, restore, handler=handler)
@@ -648,13 +646,13 @@ class pydbg:
         #
         # but since we are doing global hardware breakpoints, we rely on ourself for tracking open slots.
 
-        if not self.hardware_breakpoints.has_key(0):
+        if not 0 in self.hardware_breakpoints:
             available = 0
-        elif not self.hardware_breakpoints.has_key(1):
+        elif not 1 in self.hardware_breakpoints:
             available = 1
-        elif not self.hardware_breakpoints.has_key(2):
+        elif not 2 in self.hardware_breakpoints:
             available = 2
-        elif not self.hardware_breakpoints.has_key(3):
+        elif not 3 in self.hardware_breakpoints:
             available = 3
         else:
             raise pdx("no hw breakpoint slots available.")
@@ -715,7 +713,7 @@ class pydbg:
         @return:    Self
         '''
 
-        self._log("bp_set_mem() buffer range is {:08x} - {:08x}".format((address, address + size)))
+        self._log("bp_set_mem() buffer range is {:08x} - {:08x}".format(address, address + size))
 
         # ensure the target address doesn't already sit in a memory breakpoint range:
         if self.bp_is_ours_mem(address):
@@ -728,7 +726,7 @@ class pydbg:
         except:
             raise pdx("bp_set_mem(): failed querying address: {:08x}".format(address))
 
-        self._log("buffer starting at {:08x} sits on page starting at {:08x}".format((address, mbi.BaseAddress)))
+        self._log("buffer starting at {:08x} sits on page starting at {:08x}".format(address, mbi.BaseAddress))
 
         # individually change the page permissions for each page our buffer spans.
         # why do we individually set the page permissions of each page as opposed to a range of pages? because empirical
@@ -809,7 +807,7 @@ class pydbg:
 
             if mbi.Protect & PAGE_GUARD:
                 address = mbi.BaseAddress
-                print("PAGE GUARD on {:%08x}".format(mbi.BaseAddress))
+                print("PAGE GUARD on {:08x}".format(mbi.BaseAddress))
 
                 while 1:
                     address += self.page_size
@@ -818,7 +816,7 @@ class pydbg:
                     if not tmp_mbi.Protect & PAGE_GUARD:
                         break
 
-                    print("PAGE GUARD on {:%08x}".format(address))
+                    print("PAGE GUARD on {:08x}".format(address))
 
             cursor += mbi.RegionSize
 
@@ -893,12 +891,12 @@ class pydbg:
                 elif ec == EXCEPTION_SINGLE_STEP:
                     continue_status = self.exception_handler_single_step()
                 # generic callback support.
-                elif self.callbacks.has_key(ec):
+                elif ec in self.callbacks:
                     continue_status = self.callbacks[ec](self)
                 # unhandled exception.
                 else:
-                    self._log("TID:{:04x} caused an unhandled exception ({:08x}) at {:08x}".format((
-                        self.dbg.dwThreadId, ec, self.exception_address)))
+                    self._log("TID:{:04x} caused an unhandled exception ({:08x}) at {:08x}".format(
+                        self.dbg.dwThreadId, ec, self.exception_address))
                     continue_status = DBG_EXCEPTION_NOT_HANDLED
 
             # if the memory space of the debuggee was tainted, flush the instruction cache.
@@ -934,7 +932,7 @@ class pydbg:
                 pass
 
             # if a user callback was specified, call it.
-            if self.callbacks.has_key(USER_CALLBACK_DEBUG_EVENT):
+            if USER_CALLBACK_DEBUG_EVENT in self.callbacks:
                 # user callbacks do not / should not access debugger or contextual information.
                 self.dbg = self.context = None
                 self.callbacks[USER_CALLBACK_DEBUG_EVENT](self)
@@ -1053,7 +1051,7 @@ class pydbg:
             return [(address, "invalid window size supplied")]
         
         # grab a safe window size of bytes.
-        window_size = (num_inst * 64) / 5
+        window_size = (num_inst * 64) // 5
 
         # grab a window of bytes before and after the requested address.
         try:
@@ -1134,22 +1132,22 @@ class pydbg:
         context_list = self.dump_context_list(context, stack_depth, print_dots)
 
         context_dump  = "CONTEXT DUMP\n"
-        context_dump += "  EIP: {:08x} {:s}\n".format((context.Eip, context_list["eip"]))
-        context_dump += "  EAX: {:08x} ({:10d}) -> {:s}\n".format((context.Eax, context.Eax, context_list["eax"]))
-        context_dump += "  EBX: {:08x} ({:10d}) -> {:s}\n".format((context.Ebx, context.Ebx, context_list["ebx"]))
-        context_dump += "  ECX: {:08x} ({:10d}) -> {:s}\n".format((context.Ecx, context.Ecx, context_list["ecx"]))
-        context_dump += "  EDX: {:08x} ({:10d}) -> {:s}\n".format((context.Edx, context.Edx, context_list["edx"]))
-        context_dump += "  EDI: {:08x} ({:10d}) -> {:s}\n".format((context.Edi, context.Edi, context_list["edi"]))
-        context_dump += "  ESI: {:08x} ({:10d}) -> {:s}\n".format((context.Esi, context.Esi, context_list["esi"]))
-        context_dump += "  EBP: {:08x} ({:10d}) -> {:s}\n".format((context.Ebp, context.Ebp, context_list["ebp"]))
-        context_dump += "  ESP: {:08x} ({:10d}) -> {:s}\n".format((context.Esp, context.Esp, context_list["esp"]))
+        context_dump += "  EIP: {:08x} {:s}\n".format(context.Eip, context_list["eip"])
+        context_dump += "  EAX: {:08x} ({:10d}) -> {:s}\n".format(context.Eax, context.Eax, context_list["eax"])
+        context_dump += "  EBX: {:08x} ({:10d}) -> {:s}\n".format(context.Ebx, context.Ebx, context_list["ebx"])
+        context_dump += "  ECX: {:08x} ({:10d}) -> {:s}\n".format(context.Ecx, context.Ecx, context_list["ecx"])
+        context_dump += "  EDX: {:08x} ({:10d}) -> {:s}\n".format(context.Edx, context.Edx, context_list["edx"])
+        context_dump += "  EDI: {:08x} ({:10d}) -> {:s}\n".format(context.Edi, context.Edi, context_list["edi"])
+        context_dump += "  ESI: {:08x} ({:10d}) -> {:s}\n".format(context.Esi, context.Esi, context_list["esi"])
+        context_dump += "  EBP: {:08x} ({:10d}) -> {:s}\n".format(context.Ebp, context.Ebp, context_list["ebp"])
+        context_dump += "  ESP: {:08x} ({:10d}) -> {:s}\n".format(context.Esp, context.Esp, context_list["esp"])
 
         for offset in xrange(0, stack_depth + 1):
             context_dump += "  +{:02x}: {:08x} ({:10d}) -> {:s}\n".format(    
                 offset * 4,
-                context_list["esp+{:02x}"%(offset*4)]["value"],
-                context_list["esp+{:02x}"%(offset*4)]["value"],
-                context_list["esp+{:02x}"%(offset*4)]["desc"]
+                context_list["esp+{:02x}".format(offset*4)]["value"],
+                context_list["esp+{:02x}".format(offset*4)]["value"],
+                context_list["esp+{:02x}".format(offset*4)]["desc"]
             )
 
         return context_dump
@@ -1198,13 +1196,13 @@ class pydbg:
             try:
                 esp = self.flip_endian_dword(self.read_process_memory(context.Esp + offset * 4, 4))
 
-                context_list["esp+{:02x}".format((offset*4))]          = {}
-                context_list["esp+{:02x}".format((offset*4))]["value"] = esp
-                context_list["esp+{:02x}".format((offset*4))]["desc"]  = self.smart_dereference(esp, print_dots, hex_dump)
+                context_list["esp+{:02x}".format(offset*4)]          = {}
+                context_list["esp+{:02x}".format(offset*4)]["value"] = esp
+                context_list["esp+{:02x}".format(offset*4)]["desc"]  = self.smart_dereference(esp, print_dots, hex_dump)
             except:
-                context_list["esp+{:02x}".format((offset*4))]          = {}
-                context_list["esp+{:02x}".format((offset*4))]["value"] = 0
-                context_list["esp+{:02x}".format((offset*4))]["desc"]  = "[INVALID]"
+                context_list["esp+{:02x}".format(offset*4)]          = {}
+                context_list["esp+{:02x}".format(offset*4)]["value"] = 0
+                context_list["esp+{:02x}".format(offset*4)]["desc"]  = "[INVALID]"
 
         return context_list
 
@@ -1342,7 +1340,7 @@ class pydbg:
         if not self.follow_forks:
             return DBG_CONTINUE
 
-        if self.callbacks.has_key(CREATE_PROCESS_DEBUG_EVENT):
+        if CREATE_PROCESS_DEBUG_EVENT in self.callbacks:
             return self.callbacks[CREATE_PROCESS_DEBUG_EVENT](self)
         else:
             return DBG_CONTINUE
@@ -1395,7 +1393,7 @@ class pydbg:
             self.set_thread_context(thread_context, thread_id=thread_id)
 
         # pass control to user defined callback.
-        if self.callbacks.has_key(CREATE_THREAD_DEBUG_EVENT):
+        if CREATE_THREAD_DEBUG_EVENT in self.callbacks:
             return self.callbacks[CREATE_THREAD_DEBUG_EVENT](self)
         else:
             return DBG_CONTINUE
@@ -1411,7 +1409,7 @@ class pydbg:
 
         self.set_debugger_active(False)
 
-        if self.callbacks.has_key(EXIT_PROCESS_DEBUG_EVENT):
+        if EXIT_PROCESS_DEBUG_EVENT in self.callbacks:
             return self.callbacks[EXIT_PROCESS_DEBUG_EVENT](self)
         else:
             return DBG_CONTINUE
@@ -1427,13 +1425,13 @@ class pydbg:
         '''
 
         # before we remove the TEB entry from our internal list, let's give the user a chance to do something with it.
-        if self.callbacks.has_key(EXIT_THREAD_DEBUG_EVENT):
+        if EXIT_THREAD_DEBUG_EVENT in self.callbacks:
             continue_status = self.callbacks[EXIT_THREAD_DEBUG_EVENT](self)
         else:
             continue_status = DBG_CONTINUE
 
         # remove the TEB entry for the exiting thread id.
-        if self.tebs.has_key(self.dbg.dwThreadId):
+        if self.dbg.dwThreadId in self.tebs:
             del(self.tebs[self.dbg.dwThreadId])
 
         return continue_status
@@ -1459,7 +1457,7 @@ class pydbg:
         dll = system_dll(self.dbg.u.LoadDll.hFile, self.dbg.u.LoadDll.lpBaseOfDll)
         self.system_dlls.append(dll)
 
-        if self.callbacks.has_key(LOAD_DLL_DEBUG_EVENT):
+        if LOAD_DLL_DEBUG_EVENT in self.callbacks:
             return self.callbacks[LOAD_DLL_DEBUG_EVENT](self)
         else:
             return DBG_CONTINUE
@@ -1483,7 +1481,7 @@ class pydbg:
                 break
 
         # before we remove the system dll from our internal list, let's give the user a chance to do something with it.
-        if self.callbacks.has_key(UNLOAD_DLL_DEBUG_EVENT):
+        if UNLOAD_DLL_DEBUG_EVENT in self.callbacks:
             continue_status = self.callbacks[UNLOAD_DLL_DEBUG_EVENT](self)
         else:
             continue_status = DBG_CONTINUE
@@ -1515,7 +1513,7 @@ class pydbg:
         @return: Debug event continue status.
         '''
 
-        if self.callbacks.has_key(EXCEPTION_ACCESS_VIOLATION):
+        if EXCEPTION_ACCESS_VIOLATION in self.callbacks:
             return self.callbacks[EXCEPTION_ACCESS_VIOLATION](self)
         else:
             return DBG_EXCEPTION_NOT_HANDLED
@@ -1531,14 +1529,14 @@ class pydbg:
         @return: Debug event continue status.
         '''
 
-        self._log("pydbg.exception_handler_breakpoint() at {:08x} from thread id {:d}".format((self.exception_address, self.dbg.dwThreadId)))
+        self._log("pydbg.exception_handler_breakpoint() at {:08x} from thread id {:d}".format(self.exception_address, self.dbg.dwThreadId))
 
         # breakpoints we did not set.
         if not self.bp_is_ours(self.exception_address):
             # system breakpoints.
             if self.exception_address == self.system_break:
                 # pass control to user registered call back.
-                if self.callbacks.has_key(EXCEPTION_BREAKPOINT):
+                if EXCEPTION_BREAKPOINT in self.callbacks:
                     continue_status = self.callbacks[EXCEPTION_BREAKPOINT](self)
                 else:
                     continue_status = DBG_CONTINUE
@@ -1570,7 +1568,7 @@ class pydbg:
                 continue_status = self.breakpoints[self.exception_address].handler(self)
 
             # pass control to default user registered call back handler, if it is specified.
-            elif self.callbacks.has_key(EXCEPTION_BREAKPOINT):
+            elif EXCEPTION_BREAKPOINT in self.callbacks:
                 continue_status = self.callbacks[EXCEPTION_BREAKPOINT](self)
 
             else:
@@ -1579,7 +1577,7 @@ class pydbg:
             # if the breakpoint still exists, ie: the user didn't erase it during the callback, and the breakpoint is
             # flagged for restore, then tell the single step handler about it. furthermore, check if the debugger is
             # still active, that way we don't try and single step if the user requested a detach.
-            if self.get_attr("debugger_active") and self.breakpoints.has_key(self.exception_address):
+            if self.get_attr("debugger_active") and self.exception_address in self.breakpoints:
                 if self.breakpoints[self.exception_address].restore:
                     self._restore_breakpoint = self.breakpoints[self.exception_address]
                     self.single_step(True)
@@ -1616,16 +1614,16 @@ class pydbg:
             self._log("direct hit on memory breakpoint at {:08x}".format(self.memory_breakpoint_hit))
 
         if self.write_violation:
-            self._log("write violation from {:08x} on {:08x} of mem bp".format((self.exception_address, self.violation_address)))
+            self._log("write violation from {:08x} on {:08x} of mem bp".format(self.exception_address, self.violation_address))
         else:
-            self._log("read violation from {:08x} on {:08x} of mem bp".format((self.exception_address, self.violation_address)))
+            self._log("read violation from {:08x} on {:08x} of mem bp".format(self.exception_address, self.violation_address))
 
         # if there is a specific handler registered for this bp, pass control to it.
         if self.memory_breakpoint_hit and self.memory_breakpoints[self.memory_breakpoint_hit].handler:
             continue_status = self.memory_breakpoints[self.memory_breakpoint_hit].handler(self)
 
         # pass control to default user registered call back handler, if it is specified.
-        elif self.callbacks.has_key(EXCEPTION_GUARD_PAGE):
+        elif EXCEPTION_GUARD_PAGE in self.callbacks:
             continue_status = self.callbacks[EXCEPTION_GUARD_PAGE](self)
 
         else:
@@ -1664,7 +1662,7 @@ class pydbg:
 
             # restore PAGE_GUARD for a memory breakpoint (make sure guards are not temporarily suspended).
             elif isinstance(bp, memory_breakpoint) and self._guards_active:
-                self._log("restoring {:08x} +PAGE_GUARD on page based @ {:08x}".format((bp.mbi.Protect, bp.mbi.BaseAddress)))
+                self._log("restoring {:08x} +PAGE_GUARD on page based @ {:08x}".format(bp.mbi.Protect, bp.mbi.BaseAddress))
                 self.virtual_protect(bp.mbi.BaseAddress, 1, bp.mbi.Protect | PAGE_GUARD)
 
             # restore a hardware breakpoint.
@@ -1675,16 +1673,16 @@ class pydbg:
         # determine if this single step event occured in reaction to a hardware breakpoint and grab the hit breakpoint.
         # according to the Intel docs, we should be able to check for the BS flag in Dr6. but it appears that windows
         # isn't properly propogating that flag down to us.
-        if self.context.Dr6 & 0x1 and self.hardware_breakpoints.has_key(0):
+        if self.context.Dr6 & 0x1 and 0 in  self.hardware_breakpoints:
             self.hardware_breakpoint_hit = self.hardware_breakpoints[0]
 
-        elif self.context.Dr6 & 0x2 and self.hardware_breakpoints.has_key(1):
+        elif self.context.Dr6 & 0x2 and 1 in self.hardware_breakpoints:
             self.hardware_breakpoint_hit = self.hardware_breakpoints[1]
 
-        elif self.context.Dr6 & 0x4 and self.hardware_breakpoints.has_key(2):
+        elif self.context.Dr6 & 0x4 and 2 in  self.hardware_breakpoints:
             self.hardware_breakpoint_hit = self.hardware_breakpoints[2]
 
-        elif self.context.Dr6 & 0x8 and self.hardware_breakpoints.has_key(3):
+        elif self.context.Dr6 & 0x8 and 3 in self.hardware_breakpoints:
             self.hardware_breakpoint_hit = self.hardware_breakpoints[3]
 
         # if we are dealing with a hardware breakpoint and there is a specific handler registered, pass control to it.
@@ -1692,7 +1690,7 @@ class pydbg:
             continue_status = self.hardware_breakpoint_hit.handler(self)
 
         # pass control to default user registered call back handler, if it is specified.
-        elif self.callbacks.has_key(EXCEPTION_SINGLE_STEP):
+        elif EXCEPTION_SINGLE_STEP in self.callbacks:
             continue_status = self.callbacks[EXCEPTION_SINGLE_STEP](self)
 
         # if we single stepped to handle a breakpoint restore.
@@ -1714,7 +1712,7 @@ class pydbg:
         if self.hardware_breakpoint_hit != None and self.get_attr("debugger_active"):
             slot = self.hardware_breakpoint_hit.slot
 
-            if self.hardware_breakpoints.has_key(slot):
+            if slot in self.hardware_breakpoints:
                 curr = self.hardware_breakpoints[slot]
                 prev = self.hardware_breakpoint_hit
 
@@ -1791,15 +1789,15 @@ class pydbg:
                 base_address = module.modBaseAddr
                 dos_header   = self.read_process_memory(base_address, 0x40)
 
-                # check validity of DOS header.
-                if len(dos_header) != 0x40 or dos_header[:2] != "MZ":
+                # check validity of DOS header. Comparing raw memory values, so use bytes type.
+                if len(dos_header) != 0x40 or dos_header[:2] != b"MZ":
                     continue
 
                 e_lfanew   = struct.unpack("<I", dos_header[0x3c:0x40])[0]
                 pe_headers = self.read_process_memory(base_address + e_lfanew, 0xF8)
 
-                # check validity of PE headers.
-                if len(pe_headers) != 0xF8 or pe_headers[:2] != "PE":
+                # check validity of PE headers. Comparing raw memory values, so use bytes type.
+                if len(pe_headers) != 0xF8 or pe_headers[:2] != b"PE":
                     continue
 
                 export_directory_rva = struct.unpack("<I", pe_headers[0x78:0x7C])[0]
@@ -1819,17 +1817,18 @@ class pydbg:
                 while low <= high:
                     # python does not suffer from integer overflows:
                     #     http://googleresearch.blogspot.com/2006/06/extra-extra-read-all-about-it-nearly.html
-                    middle          = (low + high) / 2
+                    middle          = (low + high) // 2
                     current_address = base_address + struct.unpack("<I", name_table[middle*4:(middle+1)*4])[0]
 
                     # we use a crude approach here. read 256 bytes and cut on NULL char. not very beautiful, but reading
                     # 1 byte at a time is very slow.
                     name_buffer = self.read_process_memory(current_address, 256)
-                    name_buffer = name_buffer[:name_buffer.find("\0")]
+                    name_buffer = name_buffer[:name_buffer.find(b"\x00")]
+                    name = name_buffer.decode("utf-8")
 
-                    if name_buffer < func_name:
+                    if name < func_name:
                         low = middle + 1
-                    elif name_buffer > func_name:
+                    elif name > func_name:
                         high = middle - 1
                     else:
                         # MSFT documentation is misleading - see http://www.bitsum.com/pedocerrors.htm
@@ -2009,7 +2008,7 @@ class pydbg:
         @return:    Value of specified register.
         '''
 
-        self._log("getting {:s} in thread id {:d}".format((register, self.dbg.dwThreadId)))
+        self._log("getting {:s} in thread id {:d}".format(register, self.dbg.dwThreadId))
 
         register = register.upper()
         if register not in ("EAX", "EBX", "ECX", "EDX", "ESI", "EDI", "ESP", "EBP", "EIP"):
@@ -2258,17 +2257,19 @@ class pydbg:
         # we *must* set the size of the structure prior to using it, otherwise Module32First() will fail.
         current_entry.dwSize = sizeof(current_entry)
 
-        if not kernel32.Module32First(snapshot, byref(current_entry)):
+        if not kernel32.Module32FirstW(snapshot, byref(current_entry)):
+            raise pdx("Module32FirstW()", True)
             return
 
         while 1:
             yield current_entry
 
-            if not kernel32.Module32Next(snapshot, byref(current_entry)):
+            if not kernel32.Module32NextW(snapshot, byref(current_entry)):
                 break
 
         # if the above loop is "broken" out of, then this handle leaks.
         self.close_handle(snapshot)
+        self._log("iterate_modules(): closed snapshot handle")
 
 
     #####################################################################################################################
@@ -2366,7 +2367,7 @@ class pydbg:
         dword = dword >> 8
         byte4 = chr(dword % 256)
 
-        return "{:c}{:c}{:c}{:c}".format((byte1, byte2, byte3, byte4))
+        return "{:c}{:c}{:c}{:c}".format(byte1, byte2, byte3, byte4)
 
 
     ####################################################################################################################
@@ -2439,7 +2440,7 @@ class pydbg:
 
         if not success:
             error = kernel32.GetLastError()
-            print("open_process: %d: %s" % (error, FormatError(error)))
+            print("open_process: {:d}: {:s}".format(error, FormatError(error)))
 
             raise pdx("CreateProcess()", True)
 
@@ -3010,7 +3011,7 @@ class pydbg:
         @param enable: Flag controlling the main debug event loop.
         '''
 
-        self._log("setting debug event loop flag to {:s}".format(enable))
+        self._log("setting debug event loop flag to {:s}".format(str(enable)))
         self.debugger_active = enable
 
 
@@ -3122,7 +3123,7 @@ class pydbg:
         @return:    Self
         '''
 
-        self._log("single_step({:s})".format(enable))
+        self._log("single_step({:s})".format(str(enable)))
 
         if not thread_handle:
             thread_handle = self.h_thread
@@ -3213,9 +3214,9 @@ class pydbg:
             explored_string = self.get_printable_string(explored, print_dots)
 
         if hex_dump:
-            return "{:s} --> {:s}".format((explored_string, location))
+            return "{:s} --> {:s}".format(explored_string, location)
         else:
-            return "{:s} ({:s})".format((explored_string, location))
+            return "{:s} ({:s})".format(explored_string, location)
 
 
     ####################################################################################################################
@@ -3499,7 +3500,7 @@ class pydbg:
         @return:    Previous access protection.
         '''
 
-        #self._log("VirtualProtectEx( , 0x{:08x}, {:d}, {:08x}, ,)".format(base_address, size, protection))
+        self._log("VirtualProtectEx( , 0x{:08x}, {:d}, {:08x}, ,)".format(base_address, size, protection))
 
         old_protect = c_ulong(0)
 
@@ -3617,6 +3618,10 @@ class pydbg:
 
         @raise pdx: An exception is raised on failure.
         '''
+
+        # bytearray is not accepted as initializer for c_char_p() so convert it to bytes
+        if isinstance(data, bytearray):
+            data = bytes(data)
 
         count = c_ulong(0)
 

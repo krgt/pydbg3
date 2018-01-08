@@ -1,5 +1,3 @@
-#!c:\python\python.exe
-
 #
 # PyDBG
 # Copyright (C) 2006 Pedram Amini <pedram.amini@gmail.com>
@@ -123,19 +121,19 @@ class pydbg_client:
                         exception_code = dbg.u.Exception.ExceptionRecord.ExceptionCode
                         ret            = DBG_CONTINUE
     
-                        if self.callbacks.has_key(exception_code):
-                            print "processing handler for %08x" % exception_code
+                        if exception_code in  self.callbacks:
+                            print("processing handler for {:08x}".format(exception_code))
                             ret = self.callbacks[exception_code](self)
                     
                     ## user callback event.
                     else:
-                        if self.callbacks.has_key(USER_CALLBACK_DEBUG_EVENT):                  
+                        if USER_CALLBACK_DEBUG_EVENT in self.callbacks:                  
                             ret = self.callbacks[USER_CALLBACK_DEBUG_EVENT](self)
                 
                 #### raised exception type.
                 elif received[0] == "exception":
                     (msg_type, exception_string) = received
-                    print exception_string
+                    print(exception_string)
                     raise pdx(exception_string)
                     
                 self.pickle_send(("**DONE**", ret))
@@ -165,7 +163,7 @@ class pydbg_client:
         # some functions shouldn't go over the network.
         # XXX - there may be more routines we have to add to this list.
         if method_name in ("hex_dump", "flip_endian", "flip_endian_dword"):
-            exec("method_pointer = self.pydbg.%s" % method_name)
+            exec("method_pointer = self.pydbg.{:s}".format(method_name))
             ret = method_pointer(*args, **kwargs)
         else:
             self.pickle_send((method_name, (args, kwargs)))
@@ -214,7 +212,7 @@ class pydbg_client:
         data = cPickle.dumps(data)
 
         try:
-            self.sock.send("%04x" % len(data))
+            self.sock.send("{:04x}".format(len(data)))
             self.sock.send(data)
         except:
             raise pdx("connection severed")

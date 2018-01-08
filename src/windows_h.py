@@ -202,6 +202,7 @@ _SYSTEM_INFO._fields_ = [
 assert sizeof(_SYSTEM_INFO) == 36, sizeof(_SYSTEM_INFO)
 assert alignment(_SYSTEM_INFO) == 4, alignment(_SYSTEM_INFO)
 CHAR = c_char
+WCHAR = c_wchar
 LPSTR = POINTER(CHAR)
 LPBYTE = POINTER(BYTE)
 _STARTUPINFOA._fields_ = [

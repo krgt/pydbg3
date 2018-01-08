@@ -72,6 +72,6 @@ class pdx (Exception):
     ####################################################################################################################
     def __str__ (self):
         if self.error_code != None:
-            return "[%d] %s: %s" % (self.error_code, self.message, self.error_msg.value)
+            return "[{:d}] {:s}: {:s}".format(self.error_code, self.message, self.error_msg.value.decode())
         else:
             return self.message

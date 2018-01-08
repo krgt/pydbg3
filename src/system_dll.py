@@ -82,7 +82,7 @@ class system_dll:
         self.size    = (file_size_hi.value << 8) + file_size_lo
 
         # create a file mapping from the dll handle.
-        file_map = kernel32.CreateFileMappingA(handle, 0, PAGE_READONLY, 0, 1, 0)
+        file_map = kernel32.CreateFileMappingW(handle, None, PAGE_READONLY, 0, 1, None)
 
         if file_map:
             # map a single byte of the dll into memory so we can query for the file name.
@@ -91,8 +91,8 @@ class system_dll:
 
             if file_ptr:
                 # query for the filename of the mapped file.
-                filename = create_string_buffer(2048)
-                psapi.GetMappedFileNameA(kernel32.GetCurrentProcess(), file_ptr, byref(filename), 2048)
+                filename = create_unicode_buffer(2048)
+                psapi.GetMappedFileNameW(kernel32.GetCurrentProcess(), file_ptr, byref(filename), 2048)
 
                 # store the full path. this is kind of ghetto, but i didn't want to mess with QueryDosDevice() etc ...
                 self.path = os.sep + filename.value.split(os.sep, 3)[3]

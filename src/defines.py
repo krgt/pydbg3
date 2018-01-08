@@ -82,8 +82,8 @@ class MODULEENTRY32(Structure):
         ("modBaseAddr",   DWORD),
         ("modBaseSize",   DWORD),
         ("hModule",       DWORD),
-        ("szModule",      CHAR * 256),
-        ("szExePath",     CHAR * 260),
+        ("szModule",      WCHAR * 256),
+        ("szExePath",     WCHAR * 260),
     ]
 
 class _MIB_TCPROW_OWNER_PID(Structure):
