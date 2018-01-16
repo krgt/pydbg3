@@ -55,7 +55,7 @@ class system_dll:
     size   = 0
 
     ####################################################################################################################
-    def __init__ (self, handle, base):
+    def __init__ (self, handle, base, name=None, path=None, size=0):
         '''
         Given a handle and base address of the loaded DLL, determine the DLL name and size to fully initialize the
         system DLL object.
@@ -67,46 +67,50 @@ class system_dll:
 
         @raise pdx: An exception is raised on failure.
         '''
+        #TODO I made the interface to this function a mess. Should rewrite it to make calls uniform by using input
+        #that is common to all callers (maybe dll name or memory mapped dll handle rather than file dll handle).
 
         self.handle = handle
         self.base   = base
-        self.name   = None
-        self.path   = None
+        self.name   = name
+        self.path   = path
         self.pe     = None
-        self.size   = 0
+        self.size   = size
 
-        # calculate the file size of the
-        file_size_hi = c_ulong(0)
-        file_size_lo = 0
-        file_size_lo = kernel32.GetFileSize(handle, byref(file_size_hi))
-        self.size    = (file_size_hi.value << 8) + file_size_lo
+        if self.size == 0:
+            # calculate the file size of the
+            file_size_hi = c_ulong(0)
+            file_size_lo = 0
+            file_size_lo = kernel32.GetFileSize(handle, byref(file_size_hi))
+            self.size    = (file_size_hi.value << 8) + file_size_lo
 
-        # create a file mapping from the dll handle.
-        file_map = kernel32.CreateFileMappingW(handle, None, PAGE_READONLY, 0, 1, None)
+        if self.name is None and self.path is None:
+            # create a file mapping from the dll handle.
+            file_map = kernel32.CreateFileMappingW(handle, None, PAGE_READONLY, 0, 1, None)
 
-        if file_map:
-            # map a single byte of the dll into memory so we can query for the file name.
-            kernel32.MapViewOfFile.restype = POINTER(c_char)
-            file_ptr = kernel32.MapViewOfFile(file_map, FILE_MAP_READ, 0, 0, 1)
+            if file_map:
+                # map a single byte of the dll into memory so we can query for the file name.
+                kernel32.MapViewOfFile.restype = POINTER(c_char)
+                file_ptr = kernel32.MapViewOfFile(file_map, FILE_MAP_READ, 0, 0, 1)
 
-            if file_ptr:
-                # query for the filename of the mapped file.
-                filename = create_unicode_buffer(2048)
-                psapi.GetMappedFileNameW(kernel32.GetCurrentProcess(), file_ptr, byref(filename), 2048)
+                if file_ptr:
+                    # query for the filename of the mapped file.
+                    filename = create_unicode_buffer(2048)
+                    psapi.GetMappedFileNameW(kernel32.GetCurrentProcess(), file_ptr, byref(filename), 2048)
 
-                # store the full path. this is kind of ghetto, but i didn't want to mess with QueryDosDevice() etc ...
-                self.path = os.sep + filename.value.split(os.sep, 3)[3]
+                    # store the full path. this is kind of ghetto, but i didn't want to mess with QueryDosDevice() etc ...
+                    self.path = os.sep + filename.value.split(os.sep, 3)[3]
 
-                # store the file name.
-                # XXX - this really shouldn't be failing. but i've seen it happen.
-                try:
-                    self.name = filename.value[filename.value.rindex(os.sep)+1:]
-                except:
-                    self.name = self.path
+                    # store the file name.
+                    # XXX - this really shouldn't be failing. but i've seen it happen.
+                    try:
+                        self.name = filename.value[filename.value.rindex(os.sep)+1:]
+                    except:
+                        self.name = self.path
 
-                kernel32.UnmapViewOfFile(file_ptr)
+                    kernel32.UnmapViewOfFile(file_ptr)
 
-            kernel32.CloseHandle(file_map)
+                kernel32.CloseHandle(file_map)
 
 
     ####################################################################################################################

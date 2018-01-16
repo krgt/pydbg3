@@ -86,6 +86,13 @@ class MODULEENTRY32(Structure):
         ("szExePath",     WCHAR * 260),
     ]
 
+class MODULEINFO(Structure):
+    _fields_ = [
+        ("lpBaseOfDll", DWORD),
+        ("SizeOfImage", DWORD),
+        ("EntryPoint",  DWORD),
+    ]
+
 class _MIB_TCPROW_OWNER_PID(Structure):
     _fields_ = [
         ("dwState",      DWORD),

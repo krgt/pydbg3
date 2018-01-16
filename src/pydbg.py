@@ -40,6 +40,7 @@ try:
     advapi32 = windll.advapi32
     ntdll    = windll.ntdll
     iphlpapi = windll.iphlpapi
+    psapi    = windll.psapi
 except:
     kernel32 = CDLL(os.path.join(os.path.dirname(__file__), "libmacdll.dylib"))
     advapi32 = kernel32
@@ -133,11 +134,11 @@ class pydbg:
                                                   # designates whether or not the single step event was in reaction to
                                                   # a hardware breakpoint hit or other unrelated event.
 
-        self.instruction              = None      # pydasm instruction object, propagated by self.disasm()
-        self.mnemonic                 = None      # pydasm decoded instruction mnemonic, propagated by self.disasm()
-        self.op1                      = None      # pydasm decoded 1st operand, propagated by self.disasm()
-        self.op2                      = None      # pydasm decoded 2nd operand, propagated by self.disasm()
-        self.op3                      = None      # pydasm decoded 3rd operand, propagated by self.disasm()
+        self.instruction              = None      # distorm3 instruction object, propagated by self.disasm()
+        self.mnemonic                 = None      # distorm3 decoded instruction mnemonic, propagated by self.disasm()
+        self.op1                      = None      # distorm3 decoded 1st operand, propagated by self.disasm()
+        self.op2                      = None      # distorm3 decoded 2nd operand, propagated by self.disasm()
+        self.op3                      = None      # distorm3 decoded 3rd operand, propagated by self.disasm()
 
         # control debug/error logging.
         self._log = lambda msg: sys.stdout.write("PDBG_LOG> " + msg + "\n")
@@ -150,10 +151,10 @@ class pydbg:
 
         # determine the system DbgBreakPoint address. this is the address at which initial and forced breaks happen.
         # XXX - need to look into fixing this for pydbg client/server.
+        # TODO: Shouldn't this address be resolved in the context of the debuggee? Need to check later.
         self.system_break = self.func_resolve("ntdll.dll", "DbgBreakPoint")
 
         self._log("system page size is {:d}".format(self.page_size))
-
 
     ####################################################################################################################
     def addr_to_dll (self, address):
@@ -250,6 +251,8 @@ class pydbg:
             if not self.peb:
                 self.peb = self.read_process_memory(teb + 0x30, 4)
                 self.peb = struct.unpack("<L", self.peb)[0]
+
+        self.system_dlls = self.get_dlls_data()
 
         return self.ret_self()
 
@@ -990,38 +993,25 @@ class pydbg:
     ####################################################################################################################
     def disasm (self, address):
         '''
-        Pydasm disassemble utility function wrapper. Stores the pydasm decoded instruction in self.instruction.
+        Pydasm disassemble utility function wrapper. Stores the distorm3 decoded instruction in self.instruction.
 
         @type  address: DWORD
         @param address: Address to disassemble at
 
         @rtype:  String
-        @return: Disassembled string.
+        @return: Disassembled instruction
         '''
 
+        # TODO: store the decomposed data in self.mnemonic/op1/op2...
+
         try:
-            data  = self.read_process_memory(address, 32)
+            data = self.read_process_memory(address, 32)
         except:
-            return "Unable to disassemble at {:08x}".format(address)
+            pdx("Unable to disassemble at {:08x}".format(address))
 
-        # update our internal member variables.
-        self.instruction = pydasm.get_instruction(data, pydasm.MODE_32)
+        self.instruction = distorm3.Decode(address, data, distorm3.Decode32Bits)[0][2]
 
-        if not self.instruction:
-            self.mnemonic = "[UNKNOWN]"
-            self.op1      = ""
-            self.op2      = ""
-            self.op3      = ""
-
-            return "[UNKNOWN]"
-        else:
-            self.mnemonic = pydasm.get_mnemonic_string(self.instruction, pydasm.FORMAT_INTEL)
-            self.op1      = pydasm.get_operand_string(self.instruction, 0, pydasm.FORMAT_INTEL, address)
-            self.op2      = pydasm.get_operand_string(self.instruction, 1, pydasm.FORMAT_INTEL, address)
-            self.op3      = pydasm.get_operand_string(self.instruction, 2, pydasm.FORMAT_INTEL, address)
-
-            # the rstrip() is for removing extraneous trailing whitespace that libdasm sometimes leaves.
-            return pydasm.get_instruction_string(self.instruction, pydasm.FORMAT_INTEL, address).rstrip(" ")
+        return self.instruction
 
 
     ####################################################################################################################
@@ -1040,68 +1030,48 @@ class pydbg:
         @param num_inst: (Optional, Def=5) Number of instructions to disassemble up/down from address
 
         @rtype:  List
-        @return: List of tuples (address, disassembly) of instructions around the specified address.
+        @return: List of tuples (address, size, disassembly, hex_code) of instructions around the specified address.
         '''
         
         if num_inst == 0:
-            return [(address, self.disasm(address))]
+            return self.disasm(address)
         
         if num_inst < 0 or not int == type(num_inst):
-            self._err("disasm_around called with an invalid window size. reurning error value")
-            return [(address, "invalid window size supplied")]
+            pdx("disasm_around(): called with an invalid window size.")
         
-        # grab a safe window size of bytes.
-        window_size = (num_inst * 64) // 5
+        # grab a safe window size of bytes. x86 instructions have a max length of 15 bytes
+        window_size = num_inst * 15
+
+        # rva of the block of instructions we are disassembling
+        block_rva = address - window_size
 
         # grab a window of bytes before and after the requested address.
-        try:
-            data = self.read_process_memory(address - window_size, window_size * 2)
-        except:
-            return [(address, "Unable to disassemble")]
+        data = self.read_process_memory(address - window_size, window_size * 2)
 
-        # the rstrip() is for removing extraneous trailing whitespace that libdasm sometimes leaves.
-        i           = pydasm.get_instruction(data[window_size:], pydasm.MODE_32)
-        disassembly = pydasm.get_instruction_string(i, pydasm.FORMAT_INTEL, address).rstrip(" ")
-        complete    = False
-        start_byte  = 0
+        # start of the block we disassemble every loop
+        start_byte = 0
 
-        # loop until we retrieve a set of instructions that align to the requested address.
-        while not complete:
-            instructions = []
-            slice        = data[start_byte:]
-            offset       = 0
+        decoded = False
 
-            # step through the bytes in the data slice.
-            while offset < len(slice):
-                i = pydasm.get_instruction(slice[offset:], pydasm.MODE_32)
+        # stop when there's less than `num_inst` bytes before we reach the instruction at `address`
+        while (start_byte <= window_size) and not decoded:
+            instructions = distorm3.Decode(block_rva, data[start_byte:], distorm3.Decode32Bits)
+            middle_inst_index = next((i for i, inst in enumerate(instructions) if inst[0] == address), None)
 
-                if not i:
-                    break
+            if middle_inst_index:
+                decoded = True
+                break
 
-                # calculate the actual address of the instruction at the current offset and grab the disassembly
-                addr = address - window_size + start_byte + offset
-                inst = pydasm.get_instruction_string(i, pydasm.FORMAT_INTEL, addr).rstrip(" ")
-
-                # add the address / instruction pair to our list of tuples.
-                instructions.append((addr, inst))
-
-                # increment the offset into the data slice by the length of the current instruction.
-                offset += i.length
-
-            # we're done processing a data slice.
-            # step through each addres / instruction tuple in our instruction list looking for an instruction alignment
-            # match. we do the match on address and the original disassembled instruction.
-            index_of_address = 0
-            for (addr, inst) in instructions:
-                if addr == address and inst == disassembly:
-                    complete = True
-                    break
-
-                index_of_address += 1
-
+            block_rva  += 1
             start_byte += 1
 
-        return instructions[index_of_address-num_inst:index_of_address+num_inst+1]
+        if decoded:
+            start_slice = middle_inst_index - num_inst
+            end_slice   = middle_inst_index + num_inst + 1
+            inst_window = instructions[start_slice:end_slice]
+            return [(i[0], i[2]) for i in inst_window] # return only address and disassembly
+        else:
+            pdx("disasm_around(): Error disassembling instructions.")
 
 
     ####################################################################################################################
@@ -1731,6 +1701,23 @@ class pydbg:
 
 
     ####################################################################################################################
+    def find_base_address(self, address):
+        '''
+        Finds the base address of the module containing the given address
+
+        @type  address: DWORD
+        @param address: raw memory address
+
+        @rtype: DWORD
+        @return: Base address
+        '''
+
+        for module in self.system_dlls:
+            if module.base <= address <= module.base + module.size:
+                return module.base
+
+
+    ####################################################################################################################
     def func_resolve (self, dll, function):
         '''
         Utility function that resolves the address of a given module / function name pair under the context of the
@@ -1951,9 +1938,38 @@ class pydbg:
 
 
     ####################################################################################################################
+    def get_dlls_data(self):
+        '''
+        Returns a list of system_dll() objects containing data about all the modules loaded inside the process.
+
+        @rtype:  list
+        @return: List of system_dll() objects
+        '''
+
+        dlls = []
+        modinfo = MODULEINFO()
+        cb = sizeof(modinfo)
+
+        for module in self.iterate_modules():
+            if not psapi.GetModuleInformation(self.h_process, module.hModule, byref(modinfo), cb):
+                raise pdx("GetModuleInformation()".format(self.pid), True)
+            dlls.append(system_dll(
+                handle = None,
+                base   = module.modBaseAddr,
+                size   = modinfo.SizeOfImage,
+                name   = module.szModule,
+                path   = module.szExePath
+           ))
+
+        dlls.sort(key=lambda o: o.base)
+
+        return dlls
+
+
+    ####################################################################################################################
     def get_instruction (self, address):
         '''
-        Pydasm disassemble utility function wrapper. Returns the pydasm decoded instruction in self.instruction.
+        Distorm3 disassemble utility function wrapper. Returns the pydasm decoded instruction in self.instruction.
 
         @type  address: DWORD
         @param address: Address to disassemble at
@@ -1962,12 +1978,15 @@ class pydbg:
         @return: pydasm instruction
         '''
 
+        # TODO: maybe delete this function
         try:
             data  = self.read_process_memory(address, 32)
         except:
-            return "Unable to disassemble at {:08x}".format(address)
+            pdx("get_instruction(): Unable to disassemble at {:08x}".format(address))
 
-        return pydasm.get_instruction(data, pydasm.MODE_32)
+        self.instruction = distorm3.Decode(address, data, distorm3.Decode32Bits)[2]
+
+        return self.instruction
 
 
     ####################################################################################################################
@@ -2477,6 +2496,8 @@ class pydbg:
         self.close_handle(pi.hThread)
 
 
+
+
     ####################################################################################################################
     def open_process (self, pid):
         '''
@@ -2833,7 +2854,7 @@ class pydbg:
         except:
             pass
 
-        return data
+        return bytes(data)
 
 
     ####################################################################################################################
@@ -3450,9 +3471,11 @@ class pydbg:
         '''
 
         if address:
-            self._log("VirtualAllocEx({:08x}, {:d}, {:08x}, {:08x})".format(address, size, alloc_type, protection))
+            #self._log("VirtualAllocEx({:08x}, {:d}, {:08x}, {:08x})".format(address, size, alloc_type, protection))
+            pass
         else:
-            self._log("VirtualAllocEx(NULL, {:d}, {:08x}, {:08x})".format(size, alloc_type, protection))
+            #self._log("VirtualAllocEx(NULL, {:d}, {:08x}, {:08x})".format(size, alloc_type, protection))
+            pass
 
         allocated_address = kernel32.VirtualAllocEx(self.h_process, address, size, alloc_type, protection)
 
@@ -3477,7 +3500,7 @@ class pydbg:
         @raise pdx: An exception is raised on failure.
         '''
 
-        self._log("VirtualFreeEx({:08x}, {:d}, {:08x})".format(address, size, free_type))
+        #self._log("VirtualFreeEx({:08x}, {:d}, {:08x})".format(address, size, free_type))
 
         if not kernel32.VirtualFreeEx(self.h_process, address, size, free_type):
             raise pdx("VirtualFreeEx({:08x}, {:d}, {:08x})".format(address, size, free_type), True)
@@ -3500,7 +3523,7 @@ class pydbg:
         @return:    Previous access protection.
         '''
 
-        self._log("VirtualProtectEx( , 0x{:08x}, {:d}, {:08x}, ,)".format(base_address, size, protection))
+        #self._log("VirtualProtectEx( , 0x{:08x}, {:d}, {:08x}, ,)".format(base_address, size, protection))
 
         old_protect = c_ulong(0)
 
